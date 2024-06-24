@@ -1,60 +1,145 @@
 package com.example.myapplication.home.fragment.jobsFragment
 
 import android.os.Bundle
-import androidx.fragment.app.Fragment
+import android.text.Editable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.widget.addTextChangedListener
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.navigation.fragment.findNavController
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.myapplication.R
+import com.example.myapplication.databinding.BottomSheetDeleteJobBinding
+import com.example.myapplication.databinding.FragmentJobBinding
+import com.example.myapplication.home.fragment.jobsFragment.adapter.JobAdapter
+import com.example.myapplication.home.fragment.jobsFragment.viewmodel.JobsViewModel
+import com.example.myapplication.model.Job
+import com.example.myapplication.util.LoadingDialog
+import com.example.myapplication.util.Status.*
+import com.example.myapplication.util.showToast
+import com.google.android.material.bottomsheet.BottomSheetDialog
 
-// TODO: Rename parameter arguments, choose names that match
-// the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-private const val ARG_PARAM1 = "param1"
-private const val ARG_PARAM2 = "param2"
 
-/**
- * A simple [Fragment] subclass.
- * Use the [JobsFragment.newInstance] factory method to
- * create an instance of this fragment.
- */
 class JobsFragment : Fragment() {
-    // TODO: Rename and change types of parameters
-    private var param1: String? = null
-    private var param2: String? = null
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        arguments?.let {
-            param1 = it.getString(ARG_PARAM1)
-            param2 = it.getString(ARG_PARAM2)
-        }
-    }
-
+    private var _binding: FragmentJobBinding? = null
+    private val binding get() = _binding!!
+    private var _jobAdapter: JobAdapter? = null
+    private val jobAdapter get() = _jobAdapter!!
+    private val jobs: MutableList<Job> by lazy { mutableListOf() }
+    private val jobsViewModel by viewModels<JobsViewModel>()
+    private val loadingDialog by lazy { LoadingDialog(requireContext()) }
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
         // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_job, container, false)
+        _binding = FragmentJobBinding.inflate(inflater, container, false)
+        _jobAdapter = JobAdapter(this@JobsFragment)
+
+        setupUI()
+        setupObserver()
+
+        return binding.root
     }
 
-    companion object {
-        /**
-         * Use this factory method to create a new instance of
-         * this fragment using the provided parameters.
-         *
-         * @param param1 Parameter 1.
-         * @param param2 Parameter 2.
-         * @return A new instance of fragment JobFragment.
-         */
-        // TODO: Rename and change types and number of parameters
-        @JvmStatic
-        fun newInstance(param1: String, param2: String) =
-            JobsFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_PARAM1, param1)
-                    putString(ARG_PARAM2, param2)
+    private fun setupUI() {
+        binding.apply {
+            jobsViewModel.fetchJobs()
+
+            ivPopOut.setOnClickListener {
+                findNavController().popBackStack()
+            }
+
+            etSearch.addTextChangedListener { text: Editable? ->
+                filterJobs(text)
+            }
+            ivAddJob.setOnClickListener {
+                findNavController().navigate(R.id.action_jobsFragment_to_jobDetailFragmentOne)
+            }
+
+            rvJobs.adapter = jobAdapter
+            rvJobs.layoutManager = LinearLayoutManager(requireContext())
+        }
+    }
+
+    private fun setupObserver() {
+        jobsViewModel.jobs.observe(viewLifecycleOwner){ jobState ->
+            when(jobState.status){
+                LOADING -> {
+                    // Loading
+                }
+                SUCCESS -> {
+                    val jobList = jobState.data!!
+                    jobAdapter.setJobListData(jobList)
+                    jobs.clear()
+                    jobs.addAll(jobList)
+                }
+                ERROR -> {
+                    val errorMessage = jobState.message!!
+                    showToast(requireContext(), errorMessage)
                 }
             }
+        }
+
+        jobsViewModel.deleteJobStatus.observe(viewLifecycleOwner){ deleteState ->
+            when(deleteState.status){
+                LOADING -> {
+                    loadingDialog.show()
+                }
+                SUCCESS -> {
+                    loadingDialog.dismiss()
+                    val successMessage = deleteState.data!!
+                    showToast(requireContext(), successMessage)
+                }
+                ERROR -> {
+                    loadingDialog.dismiss()
+                    val errorMessage = deleteState.message!!
+                    showToast(requireContext(), errorMessage)
+                }
+            }
+        }
+
+    }
+
+    private fun filterJobs(text: Editable?) {
+        if (text.isNullOrEmpty().not()) {
+            val filteredJobList = jobs.filter { job ->
+                val title = job.role.lowercase()
+                val inputText = text.toString().lowercase()
+                title.contains(inputText)
+            }
+            jobAdapter.setJobListData(newJobs = filteredJobList)
+        } else {
+            jobAdapter.setJobListData(newJobs = jobs)
+        }
+    }
+
+    fun deleteJobDialog(job: Job) {
+        val bottomSheetDialog = BottomSheetDialog(requireContext())
+        val jobDeleteSheetBinding = BottomSheetDeleteJobBinding.inflate(layoutInflater)
+        bottomSheetDialog.setContentView(jobDeleteSheetBinding.root)
+        jobDeleteSheetBinding.apply {
+            btnNo.setOnClickListener {
+                bottomSheetDialog.dismiss()
+            }
+            btnRemoveJob.setOnClickListener {
+                jobsViewModel.deleteJob(job)
+                bottomSheetDialog.dismiss()
+            }
+        }
+        bottomSheetDialog.show()
+    }
+
+    fun navigateToJobViewFragment(job: Job) {
+        val direction = JobsFragmentDirections.actionJobsFragmentToJobViewFragment(job = job)
+        findNavController().navigate(direction)
+    }
+
+    override fun onDestroyView() {
+        _jobAdapter = null
+        _binding = null
+        super.onDestroyView()
     }
 }

@@ -1,60 +1,218 @@
 package com.example.myapplication.home.fragment.jobsFragment
 
+import android.app.Activity
+import android.net.Uri
 import android.os.Bundle
-import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.navigation.fragment.findNavController
 import com.example.myapplication.R
+import com.example.myapplication.databinding.FragmentJobDetailOneBinding
+import com.example.myapplication.home.fragment.jobsFragment.viewmodel.JobsViewModel
+import com.example.myapplication.model.Job
+import com.example.myapplication.util.InputValidation
+import com.example.myapplication.util.addTextWatcher
+import com.example.myapplication.util.getInputValue
+import com.example.myapplication.util.showToast
+import com.github.dhaval2404.imagepicker.ImagePicker
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.ktx.Firebase
 
-// TODO: Rename parameter arguments, choose names that match
-// the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-private const val ARG_PARAM1 = "param1"
-private const val ARG_PARAM2 = "param2"
 
-/**
- * A simple [Fragment] subclass.
- * Use the [JobDetailFragmentOne.newInstance] factory method to
- * create an instance of this fragment.
- */
 class JobDetailFragmentOne : Fragment() {
-    // TODO: Rename and change types of parameters
-    private var param1: String? = null
-    private var param2: String? = null
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        arguments?.let {
-            param1 = it.getString(ARG_PARAM1)
-            param2 = it.getString(ARG_PARAM2)
+    private var _binding: FragmentJobDetailOneBinding? = null
+    private val binding get() = _binding!!
+    private val startForProfileImageResult =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
+            handleCapturedImage(result)
         }
-    }
-
+    private val jobsViewModel by viewModels<JobsViewModel>()
+    private var workType: String = ""
+    private var designation : String = ""
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_job_detail_one, container, false)
+        _binding = FragmentJobDetailOneBinding.inflate(inflater, container, false)
+
+        setupUI()
+
+        return binding.root
     }
 
-    companion object {
-        /**
-         * Use this factory method to create a new instance of
-         * this fragment using the provided parameters.
-         *
-         * @param param1 Parameter 1.
-         * @param param2 Parameter 2.
-         * @return A new instance of fragment JobDetailFragmentOne.
-         */
-        // TODO: Rename and change types and number of parameters
-        @JvmStatic
-        fun newInstance(param1: String, param2: String) =
-            JobDetailFragmentOne().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_PARAM1, param1)
-                    putString(ARG_PARAM2, param2)
+    private fun setupUI() {
+        with(binding) {
+
+            if (jobsViewModel.getImageUri() != null) {
+                ivCompany.setImageURI(jobsViewModel.getImageUri())
+            }
+
+            ivPopOut.setOnClickListener {
+                findNavController().popBackStack()
+            }
+
+            ivCompany.setOnClickListener {
+                startCrop()
+            }
+
+            etJobTitleContainer.addTextWatcher()
+            etCompanyNameContainer.addTextWatcher()
+            etCityNameContainer.addTextWatcher()
+            etSalaryContainer.addTextWatcher()
+            etJobDescContainer.addTextWatcher()
+
+            workTypeSpinner.dismissWhenNotifiedItemSelected = true
+            workTypeSpinner.setOnSpinnerItemSelectedListener<String> { _, _, _, selectedWorkType ->
+                workTypeSpinner.error = null
+                workType = selectedWorkType
+            }
+
+            designationSpinner.dismissWhenNotifiedItemSelected = true
+            designationSpinner.setOnSpinnerItemSelectedListener<String>{ _, _, _, selectedDesignation ->
+                designationSpinner.error = null
+                designation = selectedDesignation
+            }
+
+            btnNext.setOnClickListener {
+                val jobRole = etJobTitle.getInputValue()
+                val companyName = etCompanyName.getInputValue()
+                val city = etCityName.getInputValue()
+                val salary = etSalary.getInputValue()
+                val jobDescription = etJobDesc.getInputValue()
+                val imageUrl = jobsViewModel.getImageUri()
+                val currentUid = Firebase.auth.currentUser?.uid.toString()
+
+                if (detailVerification(
+                        imageUrl,
+                        jobRole,
+                        companyName,
+                        city,
+                        salary,
+                        designation,
+                        workType,
+                        jobDescription
+                    )
+                ) {
+                    val job = Job(
+                        authorUid = currentUid,
+                        imageUrl = imageUrl.toString(),
+                        role = jobRole,
+                        name = companyName,
+                        city = city,
+                        salary = salary,
+                        designation = designation,
+                        workType = workType,
+                        description = jobDescription
+                    )
+                    navigateToDetailFragmentTwo(job = job)
                 }
             }
+        }
     }
+
+    private fun navigateToDetailFragmentTwo(job: Job) {
+        val direction =
+            JobDetailFragmentOneDirections.actionJobDetailFragmentOneToJobDetailFragmentTwo(job = job)
+        findNavController().navigate(direction)
+    }
+
+    private fun startCrop() {
+        ImagePicker.with(this)
+            .galleryOnly()
+            .crop()
+            .compress(1024)
+            .maxResultSize(300, 300)
+            .createIntent { intent ->
+                startForProfileImageResult.launch(intent)
+            }
+    }
+
+    private fun handleCapturedImage(result: ActivityResult) {
+        val resultCode = result.resultCode
+        val data = result.data
+
+        when (resultCode) {
+            Activity.RESULT_OK -> {
+                jobsViewModel.setImageUri(imageUri = data?.data!!)
+                binding.ivCompany.setImageURI(jobsViewModel.getImageUri())
+            }
+            ImagePicker.RESULT_ERROR -> {
+                showToast(requireContext(), ImagePicker.getError(data))
+            }
+            else -> {
+                showToast(requireContext(), "Task Cancelled")
+            }
+        }
+    }
+
+    private fun detailVerification(
+        imageUrl: Uri?,
+        title: String,
+        company: String,
+        city: String,
+        salary: String,
+        designation : String,
+        workType: String,
+        description: String
+    ): Boolean {
+        with(binding) {
+            if (imageUrl == null) {
+                showToast(requireContext(), getString(R.string.field_error_image))
+                return false
+            }
+
+            val (isJobTitleValid, jobTitleError) = InputValidation.isJobTitleValid(title)
+            if (isJobTitleValid.not()){
+                etJobTitleContainer.error = jobTitleError
+                return isJobTitleValid
+            }
+
+            val (isCompanyNameValid, companyNameError) = InputValidation.isCompanyNameValid(company)
+            if (isCompanyNameValid.not()){
+                etCompanyNameContainer.error = companyNameError
+                return isCompanyNameValid
+            }
+
+            val (isCityValid, cityError) = InputValidation.isCityValid(city)
+            if (isCityValid.not()){
+                etCityNameContainer.error = cityError
+                return isCityValid
+            }
+
+            val (isSalaryValid, salaryError) = InputValidation.isSalaryValid(salary)
+            if (isSalaryValid.not()){
+                etSalaryContainer.error = salaryError
+                return isSalaryValid
+            }
+
+            if (InputValidation.checkNullity(workType)) {
+                workTypeSpinner.error = ""
+                return false
+            }
+
+            val (isDescriptionValid, descriptionError) = InputValidation.isJobDescriptionValid(description)
+            if (isDescriptionValid.not()) {
+                etJobDescContainer.error = descriptionError
+                return isDescriptionValid
+            }
+
+            if (InputValidation.checkNullity(designation)) {
+                designationSpinner.error = "Enter valid designation"
+                return false
+            }
+
+            return true
+        }
+    }
+
+    override fun onDestroyView() {
+        _binding = null
+        super.onDestroyView()
+    }
+
 }

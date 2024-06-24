@@ -1,60 +1,124 @@
 package com.example.myapplication.home.fragment.jobsFragment
 
 import android.os.Bundle
-import androidx.fragment.app.Fragment
+import android.text.Editable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import com.example.myapplication.R
+import androidx.core.widget.addTextChangedListener
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.navigation.fragment.findNavController
+import androidx.navigation.fragment.navArgs
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.example.myapplication.databinding.FragmentStudentJobBinding
+import com.example.myapplication.home.fragment.jobsFragment.adapter.EvaluationStudentAdapter
+import com.example.myapplication.home.fragment.jobsFragment.adapter.PendingStudentAdapter
+import com.example.myapplication.home.fragment.jobsFragment.viewmodel.StudentJobViewModel
+import com.example.myapplication.model.JobApplication
+import com.example.myapplication.model.JobStatus
 
-// TODO: Rename parameter arguments, choose names that match
-// the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-private const val ARG_PARAM1 = "param1"
-private const val ARG_PARAM2 = "param2"
+private const val TAG = "StudentJobFragment"
 
-/**
- * A simple [Fragment] subclass.
- * Use the [StudentJobFragment.newInstance] factory method to
- * create an instance of this fragment.
- */
 class StudentJobFragment : Fragment() {
-    // TODO: Rename and change types of parameters
-    private var param1: String? = null
-    private var param2: String? = null
+    private var _binding: FragmentStudentJobBinding? = null
+    private val binding get() = _binding!!
+    private val args by navArgs<StudentJobFragmentArgs>()
+    private val studentJobViewModel by viewModels<StudentJobViewModel>()
+    private var _pendingStudentAdapter: PendingStudentAdapter? = null
+    private val pendingStudentAdapter get() = _pendingStudentAdapter!!
+    private var _evaluationStudentAdapter: EvaluationStudentAdapter? = null
+    private val evaluationStudentAdapter get() = _evaluationStudentAdapter!!
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        arguments?.let {
-            param1 = it.getString(ARG_PARAM1)
-            param2 = it.getString(ARG_PARAM2)
-        }
-    }
-
+    private val pendingStudents: MutableList<JobStatus> by lazy { mutableListOf() }
+    private val evaluatedStudents: MutableList<JobStatus> by lazy { mutableListOf() }
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_student_job, container, false)
+        _binding = FragmentStudentJobBinding.inflate(layoutInflater)
+        _pendingStudentAdapter = PendingStudentAdapter(::setJobStatus)
+        _evaluationStudentAdapter = EvaluationStudentAdapter()
+
+        setupUI()
+        setupObserver()
+
+        return binding.root
     }
 
-    companion object {
-        /**
-         * Use this factory method to create a new instance of
-         * this fragment using the provided parameters.
-         *
-         * @param param1 Parameter 1.
-         * @param param2 Parameter 2.
-         * @return A new instance of fragment StudentJobFragment.
-         */
-        // TODO: Rename and change types and number of parameters
-        @JvmStatic
-        fun newInstance(param1: String, param2: String) =
-            StudentJobFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_PARAM1, param1)
-                    putString(ARG_PARAM2, param2)
-                }
+    private fun setupUI() {
+        studentJobViewModel.fetchStudents(args.jobId)
+        with(binding) {
+
+            ivPopOut.setOnClickListener {
+                findNavController().popBackStack()
             }
+
+            rvApplicants.adapter = pendingStudentAdapter
+            rvApplicants.layoutManager = LinearLayoutManager(requireContext())
+            rvApplicants.hasFixedSize()
+            rvApplicants.setItemViewCacheSize(10)
+
+
+            rvRecorded.adapter = evaluationStudentAdapter
+            rvRecorded.layoutManager = LinearLayoutManager(requireContext())
+            rvRecorded.hasFixedSize()
+            rvRecorded.setItemViewCacheSize(10)
+
+            etSearch.addTextChangedListener { text: Editable? ->
+                filterStudents(text)
+            }
+        }
+    }
+
+    private fun setupObserver() {
+        studentJobViewModel.pendingApplications.observe(viewLifecycleOwner) { students ->
+            pendingStudentAdapter.setPendingStudent(students)
+            pendingStudents.clear()
+            pendingStudents.addAll(students)
+        }
+
+        studentJobViewModel.evaluatedApplications.observe(viewLifecycleOwner) { students ->
+            evaluationStudentAdapter.setEvaluatedStudent(students)
+            evaluatedStudents.clear()
+            evaluatedStudents.addAll(students)
+        }
+    }
+
+    private fun filterStudents(text: Editable?) {
+        if (text.isNullOrEmpty().not()) {
+            if (pendingStudents.isNotEmpty()) {
+                val filteredPendingStudents = pendingStudents.filter { jobStatus ->
+                    val name = jobStatus.student.details?.username?.lowercase() ?: ""
+                    val inputText = text.toString().lowercase()
+                    name.contains(inputText)
+                }
+                pendingStudentAdapter.setPendingStudent(filteredPendingStudents)
+            }
+            if (evaluatedStudents.isNotEmpty()) {
+                val filteredEvaluatedStudents = evaluatedStudents.filter { jobStatus ->
+                    val name = jobStatus.student.details?.username?.lowercase() ?: ""
+                    val inputText = text.toString().lowercase()
+                    name.contains(inputText)
+                }
+                evaluationStudentAdapter.setEvaluatedStudent(filteredEvaluatedStudents)
+            }
+        } else {
+            pendingStudentAdapter.setPendingStudent(pendingStudents)
+            evaluationStudentAdapter.setEvaluatedStudent(evaluatedStudents)
+        }
+    }
+
+    private fun setJobStatus(jobApplication: JobApplication) {
+        studentJobViewModel.setSelectionStatus(jobApplication)
+    }
+
+    override fun onDestroyView() {
+        _pendingStudentAdapter = null
+        _evaluationStudentAdapter = null
+        _binding = null
+        super.onDestroyView()
     }
 }
+
+

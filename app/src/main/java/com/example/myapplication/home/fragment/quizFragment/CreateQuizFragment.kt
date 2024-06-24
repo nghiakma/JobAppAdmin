@@ -1,60 +1,246 @@
 package com.example.myapplication.home.fragment.quizFragment
 
 import android.os.Bundle
-import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.navigation.fragment.findNavController
 import com.example.myapplication.R
+import com.example.myapplication.databinding.FragmentCreateQuizBinding
+import com.example.myapplication.databinding.QuestionCardLayoutBinding
+import com.example.myapplication.home.fragment.quizFragment.viewmodel.MockViewModel
+import com.example.myapplication.model.Mock
+import com.example.myapplication.model.MockQuestion
+import com.example.myapplication.util.*
+import com.example.myapplication.util.Status.*
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
-// TODO: Rename parameter arguments, choose names that match
-// the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-private const val ARG_PARAM1 = "param1"
-private const val ARG_PARAM2 = "param2"
+private const val TAG = "CreateQuizFragmentTAG"
 
-/**
- * A simple [Fragment] subclass.
- * Use the [CreateQuizFragment.newInstance] factory method to
- * create an instance of this fragment.
- */
 class CreateQuizFragment : Fragment() {
-    // TODO: Rename and change types of parameters
-    private var param1: String? = null
-    private var param2: String? = null
+    private var _binding: FragmentCreateQuizBinding? = null
+    private val binding get() = _binding!!
+    private val options = listOf("A", "B", "C", "D")
+    private val mockTestQuestions: MutableList<MockQuestion> = mutableListOf()
+    private val mockViewModel by viewModels<MockViewModel>()
+    private val loadingDialog: LoadingDialog by lazy { LoadingDialog(requireContext()) }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        arguments?.let {
-            param1 = it.getString(ARG_PARAM1)
-            param2 = it.getString(ARG_PARAM2)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        _binding = FragmentCreateQuizBinding.inflate(inflater, container, false)
+
+        setupUI()
+        setupObserver()
+
+        return binding.root
+    }
+
+    private fun setupUI() {
+        with(binding) {
+            ivPopOut.setOnClickListener {
+                findNavController().popBackStack()
+            }
+            etQuizTitleContainer.addTextWatcher()
+            etDurationContainer.addTextWatcher()
+            btnAddQuestion.setOnClickListener {
+                if (mockViewModel.mockQuestionCounter <= 10) {
+                    addQuestionView()
+                    mockViewModel.increment()
+                } else {
+                    showToast(requireContext(), "Can't add more than 10 questions.")
+                }
+            }
+            tvSubmitQuiz.setOnClickListener {
+                submitQuizDialog()
+            }
         }
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_create_quiz, container, false)
-    }
-
-    companion object {
-        /**
-         * Use this factory method to create a new instance of
-         * this fragment using the provided parameters.
-         *
-         * @param param1 Parameter 1.
-         * @param param2 Parameter 2.
-         * @return A new instance of fragment CreateQuizFragment.
-         */
-        // TODO: Rename and change types and number of parameters
-        @JvmStatic
-        fun newInstance(param1: String, param2: String) =
-            CreateQuizFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_PARAM1, param1)
-                    putString(ARG_PARAM2, param2)
+    private fun setupObserver() {
+        mockViewModel.mockTestUploadStatus.observe(viewLifecycleOwner){ resource ->
+            when(resource.status){
+                LOADING -> {
+                    loadingDialog.show()
+                }
+                SUCCESS -> {
+                    loadingDialog.dismiss()
+                    mockTestQuestions.clear()
+                    val successMessage = resource.data!!
+                    showToast(requireContext(), successMessage)
+                    findNavController().popBackStack()
+                }
+                ERROR -> {
+                    loadingDialog.dismiss()
+                    val errorMessage = resource.message!!
+                    showToast(requireContext(), errorMessage)
                 }
             }
+        }
+    }
+
+    private fun addQuestionView() {
+        val questionCard = QuestionCardLayoutBinding.inflate(layoutInflater)
+        val childCount = binding.questionContainer.childCount
+        questionCard.root.setTag(childCount)
+        questionCard.tvQuestionCount.text = getString(R.string.question_count, childCount + 1)
+        questionCard.ivDeleteQuestion.setOnClickListener {
+            val index = questionCard.root.tag as Int
+            deleteQuestionDialog(index)
+        }
+        binding.questionContainer.addView(questionCard.root)
+    }
+
+    private fun deleteQuestionDialog(index: Int) {
+        val deleteDialog = MaterialAlertDialogBuilder(requireContext(), R.style.AlertDialogTheme)
+        deleteDialog.setTitle("Delete Question")
+        deleteDialog.setMessage("Are you sure you want to delete the question?")
+        deleteDialog.setPositiveButton("Yes") { dialog, _ ->
+            deleteView(index)
+            dialog.dismiss()
+        }
+        deleteDialog.setNegativeButton("No") { dialog, _ ->
+            dialog.dismiss()
+        }
+        deleteDialog.show()
+    }
+
+    private fun deleteView(index: Int) {
+        val questionCard = binding.questionContainer.getChildAt(index)
+        binding.questionContainer.removeView(questionCard)
+        mockViewModel.decrement()
+        if (mockTestQuestions.size > index) {
+            mockTestQuestions.removeAt(index)
+        }
+        updateQuestionView()
+    }
+
+    private fun updateQuestionView() {
+        val questionCount = binding.questionContainer.childCount
+        (0 until questionCount).forEachIndexed { index, _ ->
+            val questionCard = binding.questionContainer.getChildAt(index)
+            val tvQuestionCount: TextView = questionCard.findViewById(R.id.tvQuestionCount)
+            questionCard.setTag(index)
+            tvQuestionCount.text = getString(R.string.question_count, index + 1)
+        }
+    }
+
+    private fun submitQuizDialog() {
+        val submitDialog = MaterialAlertDialogBuilder(requireContext(), R.style.AlertDialogTheme)
+        submitDialog.setTitle("Submit Mock")
+        submitDialog.setMessage("Are you sure you want to add this Mock test?")
+        submitDialog.setPositiveButton("Yes") { dialog, _ ->
+            val questions = getMockTestQuestions()
+            submitMockTest(questions)
+            dialog.dismiss()
+        }
+        submitDialog.setNegativeButton("No") { dialog, _ ->
+            dialog.dismiss()
+        }
+        submitDialog.show()
+    }
+
+    private fun submitMockTest(questions: MutableList<MockQuestion>) {
+        questions.forEachIndexed { index, question ->
+            if (isQuestionValid(question)) {
+                if (index == questions.lastIndex) {
+                    val title = binding.etQuizTitle.getInputValue()
+                    val duration = binding.etDuration.getInputValue()
+                    if (isMockTestDetailValid(title, duration)) {
+                        val mock = Mock(title = title, duration = duration, mockQuestion = questions)
+                        mockViewModel.uploadMockTest(mock)
+                    }
+                }
+            } else {
+                val questionCard = binding.questionContainer.getChildAt(index)
+                val locationX = questionCard.x
+                val locationY = questionCard.y
+                binding.questionScrollContainer.smoothScrollTo(locationX.toInt(), locationY.toInt())
+                return
+            }
+        }
+    }
+
+    private fun getMockTestQuestions(): MutableList<MockQuestion> {
+        val childCount = (0 until binding.questionContainer.childCount)
+        mockTestQuestions.clear()
+        childCount.forEachIndexed { index, _ ->
+            val questionView = binding.questionContainer.getChildAt(index)
+            val questionCard = QuestionCardLayoutBinding.bind(questionView)
+            questionCard.apply {
+                val optionOne = etOptionOne.getInputValue()
+                val optionTwo = etOptionTwo.getInputValue()
+                val optionThree = etOptionThree.getInputValue()
+                val optionFour = etOptionFour.getInputValue()
+                val question = etQuestion.getInputValue()
+                val feedback = etFeedBack.getInputValue()
+                var correctOption: String = ""
+                if (correctAnsSpinner.selectedIndex != -1) {
+                    correctOption = options[correctAnsSpinner.selectedIndex]
+                }
+                val questionOptions = listOf(optionOne, optionTwo, optionThree, optionFour)
+                val mockQuestion = MockQuestion(
+                    question = question,
+                    options = questionOptions,
+                    correctOption = correctOption,
+                    feedback = feedback
+                )
+                mockTestQuestions.add(mockQuestion)
+            }
+        }
+        return mockTestQuestions
+    }
+
+    private fun isMockTestDetailValid(title: String, duration: String): Boolean {
+        with(binding) {
+            val (isMockTitleValid, mockTitleError) = InputValidation.isMockTitleValid(title)
+            if (isMockTitleValid.not()) {
+                etQuizTitleContainer.error = mockTitleError
+                return isMockTitleValid
+            }
+
+            val (isDurationValid, durationError) = InputValidation.isDurationValid(duration)
+            if (isDurationValid.not()) {
+                etDurationContainer.error = durationError
+                return isDurationValid
+            }
+            return true
+        }
+    }
+
+    private fun isQuestionValid(mockQuestion: MockQuestion): Boolean {
+        val (isQuestionValid, questionError) = InputValidation.isQuestionValid(mockQuestion.question)
+        if (isQuestionValid.not()) {
+            showToast(requireContext(), questionError)
+            return isQuestionValid
+        }
+
+        val (isOptionsValid, optionsError) = InputValidation.isOptionsValid(mockQuestion.options)
+        if (isOptionsValid.not()) {
+            showToast(requireContext(), optionsError)
+            return isOptionsValid
+        }
+
+        if (InputValidation.checkNullity(mockQuestion.correctOption)) {
+            showToast(requireContext(), "Please choose correct-answer.")
+            return false
+        }
+
+        val (isFeedbackValid, feedbackError) = InputValidation.isFeedbackValid(mockQuestion.feedback)
+        if (isFeedbackValid.not()) {
+            showToast(requireContext(), feedbackError)
+            return isFeedbackValid
+        }
+        return true
+    }
+
+    override fun onDestroyView() {
+        _binding = null
+        super.onDestroyView()
     }
 }
