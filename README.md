@@ -1,4 +1,4 @@
-<h1 align="center"> JobSpot-Admin 👨‍💻 </h1>
+<h1 align="center"> Job-Admin 👨‍💻 </h1>
 <p align="center"> JobSpot-Admin is a mobile application designed for administrators and Training and Placement Officers (TPOs) to assist students in finding job opportunities and preparing for them. The app is managed by the admin and TPO, who post job opportunities, mock tests, notifications of interviews, and new companies for students to explore. They also provide feedback on student applications and update their application status, notifying them whether or not they have been selected for the job. </p>
 
 ## Features
